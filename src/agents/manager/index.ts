@@ -1,6 +1,5 @@
 import type { AgentRequest, AgentResponse, AgentContext } from "@agentuity/sdk";
 import { generateObject } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
 import { groq } from "@ai-sdk/groq";
 import { z } from "zod";
 import {
@@ -9,208 +8,214 @@ import {
 	findCampaignsByTopic,
 	updateCampaignStatus,
 } from "../../utils/kv-store";
+import { errorResponse, successResponse } from "../../utils/response-utils";
 import type { Campaign, ManagerRequest } from "../../types";
 
-// Define the Zod schema for structured data extraction
-const ExtractedDataSchema = z.object({
-	topic: z.string(),
-	description: z.string().nullable().optional(),
-	publishDate: z.string().nullable().optional(),
-	domain: z.string().nullable().optional(),
+// Define the schema for structured data extraction
+const RequestSchema = z.object({
+	topic: z.string().min(1, "Topic is required"),
+	description: z.string().optional().nullable(),
+	publishDate: z.string().optional().nullable(),
+	domain: z.string().optional().nullable(),
 });
 
-// Type for the extracted data
-type ExtractedData = z.infer<typeof ExtractedDataSchema>;
+type ExtractedData = z.infer<typeof RequestSchema>;
 
+/**
+ * Manager agent for handling content marketing campaign requests
+ */
 export default async function ManagerAgent(
 	req: AgentRequest,
 	resp: AgentResponse,
 	ctx: AgentContext,
 ) {
-	try {
-		// Extract request data
-		let dataJson: Record<string, unknown> = {};
-		let dataText = "";
-		try {
-			// Safely parse JSON data from request
-			dataJson = (req.data.json as Record<string, unknown>) || {};
-		} catch (jsonError) {
-			dataText = req.data.text; // Request can come in freeform text
-		}
+	// Extract and normalize request data
+	const requestData = normalizeRequestData(req);
 
-		const rawTopic = (dataJson?.topic as string) || dataText;
+	// Validate request has a topic
+	if (!requestData.topic) {
+		ctx.logger.info("Manager: Missing topic in request");
+		return resp.json(errorResponse("Missing topic"));
+	}
 
-		// Check if we have a topic
-		if (!rawTopic || rawTopic.trim() === "") {
-			return resp.json({
-				error: "Missing a topic",
-				status: "error",
-			});
-		}
+	ctx.logger.info(
+		"Manager: Processing request for topic: %s",
+		requestData.topic,
+	);
 
-		// Clean and normalize the topic
-		const topic = rawTopic.trim();
-		ctx.logger.info("Manager: Processing request for topic: %s", topic);
+	// Extract structured data if we only have a topic
+	const request = await enrichRequestData(requestData, ctx);
 
-		const data = {
-			topic,
-			description: dataJson?.description as string | undefined,
-			publishDate: dataJson?.publishDate as string | undefined,
-			domain: dataJson?.domain as string | undefined,
-		};
+	// Check for existing campaigns with similar topics
+	const existingCampaigns = await findCampaignsByTopic(ctx, request.topic);
 
-		// If we only have a topic as a string, it might be a freeform request
-		// Use an LLM to extract structured info
-		if (!data.description && !data.publishDate) {
-			const structuredData = await extractStructuredData(topic, ctx);
-			// Merge the extracted data with the original request
-			Object.assign(data, structuredData);
-		}
-
-		// Now we have structured data
-		const request: ManagerRequest = {
-			topic: data.topic,
-			description: data.description,
-			publishDate: data.publishDate,
-			domain: data.domain,
-		};
-
-		// Check for existing campaigns with similar topics
-		ctx.logger.debug("Checking for existing campaigns: %s", request.topic);
-		const existingCampaigns = await findCampaignsByTopic(ctx, request.topic);
-
-		if (existingCampaigns.length > 0) {
-			// We found existing campaigns with similar topics
-			ctx.logger.info(
-				"Found %d existing campaigns for topic: %s",
-				existingCampaigns.length,
-				request.topic,
-			);
-
-			// Convert campaigns to plain objects for JSON serialization
-			const serializedCampaigns = existingCampaigns.map((campaign) => {
-				return {
-					id: campaign.id,
-					topic: campaign.topic,
-					description: campaign.description || null,
-					status: campaign.status,
-					createdAt: campaign.createdAt,
-					updatedAt: campaign.updatedAt,
-				};
-			});
-
-			return resp.json({
-				existingCampaigns: serializedCampaigns,
-				message: "Found existing campaigns for this topic.",
-				status: "existing_found",
-			});
-		}
-
-		// This is a new campaign, let's create it
-		try {
-			const campaign = await createCampaign(
-				ctx,
-				request.topic,
-				request.description,
-				request.publishDate,
-			);
-
-			// Double check that campaign was created successfully
-			if (!campaign || !campaign.id) {
-				ctx.logger.error(
-					"Failed to create campaign for topic: %s",
-					request.topic,
-				);
-				return resp.json({
-					error: "Failed to create campaign",
-					status: "error",
-				});
-			}
-
-			// Prepare the payload for handoff
-			const payload = {
-				topic: campaign.topic,
-				description: campaign.description || null,
-				campaignId: campaign.id,
-				publishDate: campaign.publishDate || null,
-				source: data.domain || request.domain || null,
-			};
-
-			// If there's no source/domain, skip researcher and go directly to copywriter
-			if (!payload.source) {
-				ctx.logger.info(
-					"Skipping research phase for campaign: %s",
-					campaign.id,
-				);
-				return resp.handoff({ name: "copywriter" }, { data: payload });
-			}
-
-			// If we have a source/domain, hand off to the researcher agent
-			ctx.logger.info(
-				"Handing off to researcher for campaign: %s",
-				campaign.id,
-			);
-			return resp.handoff({ name: "researcher" }, { data: payload });
-		} catch (error) {
-			ctx.logger.error("Error creating campaign: %s", error);
-			return resp.json({
-				error: `Failed to create campaign: ${error instanceof Error ? error.message : String(error)}`,
-				status: "error",
-			});
-		}
-	} catch (error) {
-		ctx.logger.error("Error in Manager Agent: %s", error);
+	if (existingCampaigns.length > 0) {
+		ctx.logger.info(
+			"Found %d existing campaigns for topic: %s",
+			existingCampaigns.length,
+			request.topic,
+		);
 		return resp.json({
-			error: "An unexpected error occurred",
-			message: error instanceof Error ? error.message : String(error),
-			status: "error",
+			existingCampaigns: serializeCampaigns(existingCampaigns),
+			message: "Found existing campaigns for this topic.",
+			status: "existing_found",
 		});
+	}
+
+	// Create a new campaign
+	try {
+		// Convert null to undefined for optional parameters
+		const description = request.description || undefined;
+		const publishDate = request.publishDate || undefined;
+
+		const campaign = await createCampaign(
+			ctx,
+			request.topic,
+			description,
+			publishDate,
+		);
+
+		if (!campaign?.id) {
+			ctx.logger.error(
+				"Failed to create campaign for topic: %s",
+				request.topic,
+			);
+			return resp.json(errorResponse("Failed to create campaign"));
+		}
+
+		// Get domain - ensure it's a string or null (not undefined) for JSON compatibility
+		const source = request.domain || null;
+
+		// Prepare payload for handoff
+		const payload = {
+			topic: campaign.topic,
+			description: campaign.description || null,
+			campaignId: campaign.id,
+			publishDate: campaign.publishDate || null,
+			source,
+		};
+
+		// Determine next agent based on whether we have a source/domain
+		if (!source) {
+			ctx.logger.info("Skipping research phase for campaign: %s", campaign.id);
+			return resp.handoff({ name: "copywriter" }, { data: payload });
+		}
+
+		ctx.logger.info("Handing off to researcher for campaign: %s", campaign.id);
+		return resp.handoff({ name: "researcher" }, { data: payload });
+	} catch (error) {
+		ctx.logger.error("Error creating campaign: %s", error);
+		return resp.json(
+			errorResponse(
+				`Failed to create campaign: ${error instanceof Error ? error.message : String(error)}`,
+			),
+		);
 	}
 }
 
 /**
- * Extract structured data from a freeform natural language request
+ * Normalize input data from various request formats
  */
-async function extractStructuredData(text: string, ctx: AgentContext) {
+function normalizeRequestData(req: AgentRequest): Partial<ExtractedData> {
+	// Initialize variables
+	let jsonData: Record<string, unknown> = {};
+	let textData = "";
+
+	// Safely parse JSON data from request
 	try {
-		ctx.logger.debug("Extracting structured data from request");
-
-		const result = await generateObject({
-			model: groq("llama3-70b-8192"),
-			schema: ExtractedDataSchema,
-			system:
-				"You are a helpful assistant that extracts structured information from natural language content marketing requests.",
-			prompt: `
-			Extract structured information from this content marketing request. 
-			The request is: "${text}"
-			
-			Extract the following information:
-			- Main topic (required)
-			- Description of the campaign (optional)
-			- Publish date for the campaign (optional)
-			- Source url (optional) Please keep the entire URL intact, not just the TLD
-
-			Only include fields that can be confidently extracted from the text.
-			`,
-		});
-
-		// Extract the data from the result
-		const extractedData: ExtractedData = result.object;
-
-		// Ensure the topic is not null or empty
-		if (!extractedData.topic || extractedData.topic.trim() === "") {
-			extractedData.topic = text.trim();
-		}
-
-		return {
-			topic: extractedData.topic || text,
-			description: extractedData.description || undefined,
-			publishDate: extractedData.publishDate || undefined,
-			domain: extractedData.domain || undefined,
-		};
-	} catch (error) {
-		ctx.logger.error("Error extracting structured data: %s", error);
-		// Fall back to just using the text as the topic
-		return { topic: text };
+		jsonData = (req.data.json as Record<string, unknown>) || {};
+	} catch (jsonError) {
+		// If JSON parsing fails, fall back to text
+		textData = req.data.text || "";
 	}
+
+	// If no text was set from the error handler, get it from req.data.text
+	if (!textData) {
+		textData = req.data.text || "";
+	}
+
+	// Get the topic from either JSON or text
+	const topic = ((jsonData.topic as string) || textData).trim();
+
+	return {
+		topic,
+		description: jsonData.description as string | undefined,
+		publishDate: jsonData.publishDate as string | undefined,
+		domain: jsonData.domain as string | undefined,
+	};
+}
+
+/**
+ * Enrich request data with AI extraction if needed
+ */
+async function enrichRequestData(
+	data: Partial<ExtractedData>,
+	ctx: AgentContext,
+): Promise<ExtractedData> {
+	// If we already have structured data from JSON, validate and return it
+	if (data.topic && (data.description || data.publishDate || data.domain)) {
+		try {
+			return RequestSchema.parse(data);
+		} catch (error) {
+			// If validation fails, ensure we at least have a topic
+			return { topic: data.topic || "" };
+		}
+	}
+
+	// Handle freeform text input by extracting structured data
+	if (data.topic) {
+		try {
+			ctx.logger.info("Extracting structured data from freeform text input");
+
+			const result = await generateObject({
+				model: groq("llama3-70b-8192"),
+				schema: RequestSchema,
+				system:
+					"You are a helpful assistant that extracts structured information from natural language content marketing requests",
+				prompt: `
+					Extract structured information from this content marketing request: 
+					"${data.topic}"
+
+					Include:
+					- Main topic (required) - Extract the main subject matter
+					- Description (optional) - A description of what the campaign is about
+					- Publish date (optional) - Look for dates like "tomorrow", "next week", etc.
+					- Source URL (optional) - Extract any URLs mentioned that could be used for research
+					
+					For dates, convert relative dates (like "tomorrow") to ISO format dates.
+					Keep the entire URL intact when extracting source URLs.
+					Only include fields that can be confidently extracted from the text.
+				`,
+			});
+
+			// Ensure we have a valid topic even if extraction fails
+			if (!result.object.topic) {
+				result.object.topic = data.topic;
+			}
+
+			ctx.logger.debug("Extracted data: %o", result.object);
+			return result.object;
+		} catch (error) {
+			ctx.logger.debug("Error extracting structured data: %s", error);
+			// Fall back to just using the text as the topic
+			return { topic: data.topic || "" };
+		}
+	}
+
+	// Ensure we always return a topic
+	return { topic: data.topic || "" };
+}
+
+/**
+ * Convert campaign objects to serializable format
+ */
+function serializeCampaigns(campaigns: Campaign[]) {
+	return campaigns.map((campaign) => ({
+		id: campaign.id,
+		topic: campaign.topic,
+		description: campaign.description || null,
+		status: campaign.status,
+		createdAt: campaign.createdAt,
+		updatedAt: campaign.updatedAt,
+	}));
 }
