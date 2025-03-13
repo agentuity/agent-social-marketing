@@ -1,0 +1,33 @@
+{
+  "name": "content-marketing",
+  "description": "Example content marketing",
+  "version": "0.0.1",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "build": "agentuity build",
+    "prestart": "agentuity bundle",
+    "start": "bun run .agentuity/index.js"
+  },
+  "keywords": [
+    "agentuity",
+    "agent",
+    "ai",
+    "ai agent",
+    "bun"
+  ],
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@agentuity/sdk": "^0.0.82",
+    "@ai-sdk/anthropic": "^1.1.16",
+    "@ai-sdk/openai": "^1.2.3",
+    "ai": "^4.1.58"
+  },
+  "module": "index.ts"
+}

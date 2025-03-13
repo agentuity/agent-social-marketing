@@ -1,0 +1,144 @@
+---
+description: Guidelines for writing Agentuity AI Agents in TypeScript
+globs: "**/src/agents/**/index.ts"
+alwaysApply: true
+---
+
+# AI Agent File
+
+- Prefer using the `agentuity agent create` command to create a new Agent
+- Prefer loading types from the node modules package `@agentuity/sdk` in the node_modules folder
+- The file should export a default function
+- Prefer naming the default function Agent or the name of the Agent based on the context of the Agent description
+- All code should be in Typescript format
+- Use the provided logger from the `AgentContext` interface such as `ctx.logger.info("my message: %s", "hello")`
+
+## Example Agent File
+
+```typescript
+import type { AgentRequest, AgentResponse, AgentContext } from "@agentuity/sdk";
+
+export default async function Agent(req: AgentRequest, resp: AgentResponse, ctx: AgentContext) {
+	return resp.json({"hello":"world"});
+}
+```
+
+### AgentRequest
+
+The AgentRequest interface provides a set of helper methods and public variables which can be used for working with data has been passed to the Agent.
+
+### AgentResponse
+
+The AgentResponse interface provides a set of helper methods for responding with different data formats from the Agent.
+
+### AgentContext
+
+The AgentContext has information specific to the incoming Agent request and a set of helper methods for accessing AI services like KeyValue storage and Vector storage.
+
+---
+description: Guidelines for the Agentuity AI Configuration file
+globs: "agentuity.yaml"
+alwaysApply: true 
+---
+
+# Agentuity Configuration File
+
+This file is used by agentuity to configure the AI Agent project.  You should NOT suggest edits to this file
+
+---
+description: Agentuity JavaScript SDK API Reference
+globs: "src/agents/**/*.{js,ts}"
+---
+
+# Agentuity JavaScript SDK
+
+The Agentuity JavaScript SDK provides a powerful framework for building AI agents in JavaScript and TypeScript. This cursor rules file helps you navigate the SDK's core interfaces and methods.
+
+## Core Interfaces
+
+### AgentHandler
+
+The main handler function type for an agent:
+
+```typescript
+type AgentHandler = (
+  request: AgentRequest,
+  response: AgentResponse,
+  context: AgentContext
+) => Promise<AgentResponseType>;
+```
+
+### AgentRequest
+
+The `AgentRequest` interface provides methods for accessing request data:
+
+- `request.trigger`: Gets the trigger type of the request
+- `request.metadata(key, defaultValue)`: Gets metadata associated with the request
+- `request.get(key, defaultValue)`: Gets the metadata value of the request
+- `request.data.contentType`: Gets the content type of the request payload
+- `request.data.json`: Gets the payload as a JSON object
+- `request.data.text`: Gets the payload as a string
+- `request.data.buffer`: Gets the payload as a Buffer
+- `request.data.binary`: Gets the payload as a Uint8Array<ArrayBuffer>
+- `request.data.object<T>`: Gets the payload as a typed object
+
+### AgentResponse
+
+The `AgentResponse` interface provides methods for creating responses:
+
+- `response.json(data, metadata)`: Creates a JSON response
+- `response.text(data, metadata)`: Creates a text response
+- `response.binary(data, metadata)`: Creates a binary response
+- `response.html(data, metadata)`: Creates an HTML response
+- `response.empty(metadata)`: Creates an empty response
+- `response.handoff(agent, args?)`: Redirects to another agent within the same project
+
+### AgentContext
+
+The `AgentContext` interface provides access to various capabilities:
+
+- `context.logger`: Logging functionality
+- `context.kv`: Key-Value storage
+- `context.vector`: Vector storage
+- `context.getAgent(params)`: Gets a handle to a remote agent
+- `context.tracer`: OpenTelemetry tracing
+
+## Storage APIs
+
+### Key-Value Storage
+
+Access through `context.kv`:
+
+- `context.kv.get(name, key)`: Retrieves a value
+- `context.kv.set(name, key, value, params)`: Stores a value with optional params (KeyValueStorageSetParams)
+- `context.kv.delete(name, key)`: Deletes a value
+
+### Vector Storage
+
+Access through `context.vector`:
+
+- `context.vector.upsert(name, ...documents)`: Inserts or updates vectors
+- `context.vector.search(name, params)`: Searches for vectors
+- `context.vector.delete(name, ...ids)`: Deletes vectors
+
+## Logging
+
+Access through `context.logger`:
+
+- `context.logger.debug(message, ...args)`: Logs a debug message
+- `context.logger.info(message, ...args)`: Logs an informational message
+- `context.logger.warn(message, ...args)`: Logs a warning message
+- `context.logger.error(message, ...args)`: Logs an error message
+- `context.logger.child(opts)`: Creates a child logger with additional context
+
+## Best Practices
+
+- Use TypeScript for better type safety and IDE support
+- Import types from `@agentuity/sdk`
+- Use structured error handling with try/catch blocks
+- Leverage the provided logger for consistent logging
+- Use the storage APIs for persisting data
+- Consider agent communication for complex workflows
+
+For complete documentation, visit: https://agentuity.dev/SDKs/javascript/api-reference
+-
