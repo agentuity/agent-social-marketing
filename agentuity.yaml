@@ -4,7 +4,7 @@
 # ------------------------------------------------
 
 # The version semver range required to run this project
-version: '>=0.0.56'
+version: ">=0.0.56"
 # The ID of the project which is automatically generated
 project_id: proj_NXlE67d22db3NO88YRaIkgVFnMKzisr4
 # The name of the project which is editable
@@ -65,15 +65,9 @@ bundler:
     - src/**
 # The agents that are part of this project
 agents:
-  - # The ID of the Agent which is automatically generated
-    id: agent_8oMB67d22db3B6pXE51xcXXhKx3clsI4
-    # The name of the Agent which is editable
+  - id: agent_8oMB67d22db3B6pXE51xcXXhKx3clsI4
     name: manager
-    # The description of the Agent which is editable
     description: The orchestrator of the marketing content
-  - id: agent_67d22f83mHDZUTyjT73uGvLcHHUgMJd0
-    name: researcher
-    description: Research subject matter topics
   - id: agent_eVSHI8nZImw67d22fa8OsS8XiUXLYRGb
     name: copywriter
     description: Writes the copy for the marketing material

@@ -98,7 +98,6 @@ export default async function CopywriterAgent(
 		// Update campaign status to writing
 		await updateCampaignStatus(ctx, campaign.id, "writing");
 
-		// Initialize variables for content generation
 		let research: ResearchResults;
 		const topic = campaign.topic;
 

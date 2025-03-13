@@ -95,14 +95,8 @@ export default async function ManagerAgent(
 			source,
 		};
 
-		// Determine next agent based on whether we have a source/domain
-		if (!source) {
-			ctx.logger.info("Skipping research phase for campaign: %s", campaign.id);
-			return resp.handoff({ name: "copywriter" }, { data: payload });
-		}
-
-		ctx.logger.info("Handing off to researcher for campaign: %s", campaign.id);
-		return resp.handoff({ name: "researcher" }, { data: payload });
+		ctx.logger.info("Handing off to copywriter for campaign: %s", campaign.id);
+		return resp.handoff({ name: "copywriter" }, { data: payload });
 	} catch (error) {
 		ctx.logger.error("Error creating campaign: %s", error);
 		return resp.json(
