@@ -26,8 +26,12 @@
   "dependencies": {
     "@agentuity/sdk": "^0.0.82",
     "@ai-sdk/anthropic": "^1.1.16",
+    "@ai-sdk/groq": "^1.1.13",
     "@ai-sdk/openai": "^1.2.3",
-    "ai": "^4.1.58"
+    "@mendable/firecrawl-js": "^1.19.1",
+    "ai": "^4.1.58",
+    "firecrawl": "^1.19.1",
+    "zod": "^3.24.2"
   },
   "module": "index.ts"
 }
