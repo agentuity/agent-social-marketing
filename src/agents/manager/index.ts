@@ -174,7 +174,7 @@ async function enrichRequestData(
 					- Main topic (required) - Extract the main subject matter
 					- Description (optional) - A description of what the campaign is about
 					- Publish date (optional) - Look for dates like "tomorrow", "next week", etc.
-					- Source URL (optional) - Extract any URLs mentioned that could be used for research
+					- Source URL (optional) - Extract any full URLs mentioned that could be used for research (not just the domain, leave the URL intact)
 					
 					For dates, convert relative dates (like "tomorrow") to ISO format dates.
 					Keep the entire URL intact when extracting source URLs.

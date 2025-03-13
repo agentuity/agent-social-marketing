@@ -58,3 +58,27 @@ export function getValidDate(dateStr?: string, ensureFuture = true): string {
 export function getValidFutureDate(dateStr?: string): string {
 	return getValidDate(dateStr, true);
 }
+
+/**
+ * Increment a date string by a specified number of days
+ * @param dateStr The date string to increment (ISO format)
+ * @param days Number of days to add
+ * @returns A new date string in ISO format with the days added
+ */
+export function incrementDateByDays(dateStr: string, days: number): string {
+	try {
+		const dateObj = new Date(dateStr);
+		if (Number.isNaN(dateObj.getTime())) {
+			throw new Error(`Invalid date: "${dateStr}"`);
+		}
+
+		const newDate = addDays(dateObj, days);
+		return format(newDate, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+	} catch (error) {
+		console.error(
+			`Error incrementing date "${dateStr}" by ${days} days: ${error}`,
+		);
+		// Return the original date if there's an error
+		return dateStr;
+	}
+}
