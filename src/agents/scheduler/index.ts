@@ -4,6 +4,8 @@ import {
 	updateCampaignStatus,
 	saveCampaign,
 } from "../../utils/kv-store";
+import { getValidDate } from "../../utils/date-utils";
+import { errorResponse, successResponse } from "../../utils/response-utils";
 import type {
 	Campaign,
 	SchedulerRequest,
@@ -21,128 +23,137 @@ export default async function SchedulerAgent(
 	ctx: AgentContext,
 ) {
 	try {
-		ctx.logger.info("Content Marketing Scheduler Agent started");
+		// Extract and validate request data
+		const { campaignId, publishDate } = req.data
+			.json as Partial<SchedulerRequest>;
 
-		// Extract request data
-		const data = req.data.json as Record<string, unknown>;
-		ctx.logger.info("Scheduler Agent received data:", {
-			...data,
-		});
+		ctx.logger.info("Scheduler: Processing campaign %s", campaignId);
 
-		// Validate required fields
-		if (!data.campaignId) {
-			return resp.json({
-				error: "Missing required field: campaignId is required",
-				status: "error",
-			});
+		// Validate campaign ID
+		if (!campaignId?.trim()) {
+			return resp.json(errorResponse("Campaign ID is required"));
 		}
 
 		// Get the campaign from KV store
-		const campaignId = data.campaignId as string;
 		const campaign = await getCampaign(ctx, campaignId);
 		if (!campaign) {
-			return resp.json({
-				error: `Campaign not found with ID: ${campaignId}`,
-				status: "error",
-			});
+			return resp.json(
+				errorResponse(`Campaign not found with ID: ${campaignId}`),
+			);
 		}
 
 		// Check if we have content to schedule
 		if (!campaign.content) {
-			return resp.json({
-				error: "Campaign has no content to schedule",
-				status: "error",
-			});
+			return resp.json(errorResponse("Campaign has no content to schedule"));
 		}
 
-		// Check if TYPEFULLY_API_KEY exists in the environment variables
-		// Access environment variables through ctx
+		// Verify API key is available
 		const apiKey = process.env.TYPEFULLY_API_KEY;
 		if (!apiKey) {
-			return resp.json({
-				error: "Missing TYPEFULLY_API_KEY in environment variables",
-				status: "error",
-			});
+			return resp.json(
+				errorResponse("Missing TYPEFULLY_API_KEY in environment variables"),
+			);
 		}
 
-		// Create a request object with the campaign content
-		const request: SchedulerRequest = {
-			campaignId,
-			content: campaign.content,
-			publishDate: data.publishDate as string | undefined,
-		};
-
 		// Update campaign status to scheduling
-		await updateCampaignStatus(ctx, campaign.id, "scheduling");
+		await updateCampaignStatus(ctx, campaignId, "scheduling");
 
-		// Calculate the scheduling date
-		const schedulingDate = calculateSchedulingDate(request.publishDate);
-
-		// Schedule all the content
-		ctx.logger.info("Scheduling content for campaign: %s", campaign.id);
+		// Get a valid future date for scheduling
+		const scheduledDateString = getValidDate(publishDate);
+		ctx.logger.info("Scheduling for date: %s", scheduledDateString);
 
 		// Initialize scheduling info
 		const schedulingInfo: SchedulingInfo = {
 			scheduledPosts: [],
 		};
 
-		// Schedule LinkedIn posts
-		if (campaign.content.linkedInPosts.length > 0) {
-			const linkedInResults = await scheduleLinkedInPosts(
-				campaign.content.linkedInPosts,
-				schedulingDate,
-				ctx,
-				apiKey,
-			);
-
-			schedulingInfo.scheduledPosts.push(...linkedInResults);
-		}
-
-		// Schedule Twitter threads
-		if (campaign.content.twitterThreads.length > 0) {
-			const twitterResults = await scheduleTwitterThreads(
-				campaign.content.twitterThreads,
-				schedulingDate,
-				ctx,
-				apiKey,
-			);
-
-			schedulingInfo.scheduledPosts.push(...twitterResults);
-		}
+		// Schedule content
+		await scheduleContent(
+			campaign,
+			scheduledDateString,
+			schedulingInfo,
+			ctx,
+			apiKey,
+		);
 
 		// Update campaign with scheduling info
 		campaign.schedulingInfo = schedulingInfo;
 		campaign.updatedAt = new Date().toISOString();
-		await saveCampaign(ctx, campaign);
+
+		// Save the campaign with scheduling info
+		const saveResult = await saveCampaign(ctx, campaign);
+		if (!saveResult) {
+			return resp.json(
+				errorResponse("Failed to save campaign with scheduling info"),
+			);
+		}
 
 		// Update campaign status to active
-		await updateCampaignStatus(ctx, campaign.id, "active");
+		await updateCampaignStatus(ctx, campaignId, "active");
 
 		// Return the scheduling results
-		return resp.json({
-			campaignId: campaign.id,
-			scheduledPosts: schedulingInfo.scheduledPosts.length,
-			message: `Successfully scheduled ${schedulingInfo.scheduledPosts.length} posts for campaign`,
-			status: "success",
-		});
+		return resp.json(
+			successResponse({
+				campaignId,
+				scheduledPosts: schedulingInfo.scheduledPosts.length,
+				message: `Successfully scheduled ${schedulingInfo.scheduledPosts.length} posts for campaign`,
+			}),
+		);
 	} catch (error) {
 		ctx.logger.error("Error in Scheduler Agent: %s", error);
-		return resp.json({
-			error: "An unexpected error occurred",
-			message: error instanceof Error ? error.message : String(error),
-			status: "error",
-		});
+		return resp.json(
+			errorResponse(
+				error instanceof Error ? error.message : "An unexpected error occurred",
+			),
+		);
 	}
 }
 
 /**
- * Calculate the scheduling date
+ * Schedule content from a campaign
  */
-function calculateSchedulingDate(publishDateStr?: string): Date {
-	// Default to publishing one week from now if no date is provided
-	return publishDateStr
-		? new Date(publishDateStr)
-		: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // One week from now
+async function scheduleContent(
+	campaign: Campaign,
+	scheduledDate: string,
+	schedulingInfo: SchedulingInfo,
+	ctx: AgentContext,
+	apiKey: string,
+): Promise<void> {
+	const { content } = campaign;
+
+	// Schedule LinkedIn posts if they exist
+	if (content?.linkedInPosts?.length) {
+		ctx.logger.info(
+			"Scheduling %d LinkedIn posts",
+			content.linkedInPosts.length,
+		);
+
+		const linkedInResults = await scheduleLinkedInPosts(
+			content.linkedInPosts,
+			scheduledDate,
+			ctx,
+			apiKey,
+		);
+
+		schedulingInfo.scheduledPosts.push(...linkedInResults);
+	}
+
+	// Schedule Twitter threads if they exist
+	if (content?.twitterThreads?.length) {
+		ctx.logger.info(
+			"Scheduling %d Twitter threads",
+			content.twitterThreads.length,
+		);
+
+		const twitterResults = await scheduleTwitterThreads(
+			content.twitterThreads,
+			scheduledDate,
+			ctx,
+			apiKey,
+		);
+
+		schedulingInfo.scheduledPosts.push(...twitterResults);
+	}
 }
 
 /**
@@ -150,28 +161,23 @@ function calculateSchedulingDate(publishDateStr?: string): Date {
  */
 async function scheduleLinkedInPosts(
 	posts: Post[],
-	publishDate: Date,
+	scheduledDate: string,
 	ctx: AgentContext,
 	apiKey: string,
 ): Promise<SchedulingInfo["scheduledPosts"]> {
 	const scheduledPosts: SchedulingInfo["scheduledPosts"] = [];
 
 	try {
-		// For simplicity, schedule all posts on the publish date
-		const scheduledDate = publishDate.toISOString();
-
 		for (let i = 0; i < posts.length; i++) {
 			const post = posts[i];
-			if (!post) continue; // Skip if post is undefined
-
-			ctx.logger.info("Scheduling LinkedIn post for %s", scheduledDate);
+			if (!post) continue;
 
 			try {
 				// Call the Typefully API to create a draft and schedule it
 				const typefullyId = await createTypefullyDraft(
 					post.content,
-					"linkedin", // Specify platform as LinkedIn
-					scheduledDate, // Schedule date
+					"linkedin",
+					scheduledDate,
 					apiKey,
 					ctx,
 				);
@@ -190,7 +196,6 @@ async function scheduleLinkedInPosts(
 			} catch (error) {
 				ctx.logger.error("Failed to schedule LinkedIn post: %s", error);
 
-				// Record the failure
 				scheduledPosts.push({
 					postId: `linkedin-post-${i}`,
 					typefullyId: "",
@@ -199,12 +204,11 @@ async function scheduleLinkedInPosts(
 				});
 			}
 		}
-
-		return scheduledPosts;
 	} catch (error) {
 		ctx.logger.error("Error scheduling LinkedIn posts: %s", error);
-		return scheduledPosts;
 	}
+
+	return scheduledPosts;
 }
 
 /**
@@ -212,25 +216,19 @@ async function scheduleLinkedInPosts(
  */
 async function scheduleTwitterThreads(
 	threads: Thread[],
-	publishDate: Date,
+	scheduledDate: string,
 	ctx: AgentContext,
 	apiKey: string,
 ): Promise<SchedulingInfo["scheduledPosts"]> {
 	const scheduledPosts: SchedulingInfo["scheduledPosts"] = [];
 
 	try {
-		// For simplicity, schedule all threads on the publish date
-		const scheduledDate = publishDate.toISOString();
-
 		for (let i = 0; i < threads.length; i++) {
 			const thread = threads[i];
-			if (!thread) continue; // Skip if thread is undefined
-
-			ctx.logger.info("Scheduling Twitter thread for %s", scheduledDate);
+			if (!thread) continue;
 
 			try {
-				// Convert the thread to a string for the API
-				// For Twitter threads, use 4 consecutive newlines to split into tweets
+				// Convert the thread to a string for the API with 4 consecutive newlines to split tweets
 				const threadContent = thread.tweets
 					.map((tweet) => tweet.content)
 					.join("\n\n\n\n");
@@ -238,8 +236,8 @@ async function scheduleTwitterThreads(
 				// Call the Typefully API to create a draft and schedule it
 				const typefullyId = await createTypefullyDraft(
 					threadContent,
-					"twitter", // Specify platform as Twitter
-					scheduledDate, // Schedule date
+					"twitter",
+					scheduledDate,
 					apiKey,
 					ctx,
 					true, // Enable threadify for Twitter threads
@@ -259,7 +257,6 @@ async function scheduleTwitterThreads(
 			} catch (error) {
 				ctx.logger.error("Failed to schedule Twitter thread: %s", error);
 
-				// Record the failure
 				scheduledPosts.push({
 					postId: `twitter-thread-${i}`,
 					typefullyId: "",
@@ -268,12 +265,11 @@ async function scheduleTwitterThreads(
 				});
 			}
 		}
-
-		return scheduledPosts;
 	} catch (error) {
 		ctx.logger.error("Error scheduling Twitter threads: %s", error);
-		return scheduledPosts;
 	}
+
+	return scheduledPosts;
 }
 
 /**
@@ -287,44 +283,30 @@ async function createTypefullyDraft(
 	ctx: AgentContext,
 	threadify = false,
 ): Promise<string> {
-	ctx.logger.info(
-		"Typefully API: Creating and scheduling draft for %s on %s",
-		platform,
-		scheduledDate,
-	);
+	const response = await fetch(`${TYPEFULLY_API_URL}/drafts/`, {
+		method: "POST",
+		headers: {
+			"X-API-KEY": `Bearer ${apiKey}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			content,
+			platform,
+			threadify,
+			"schedule-date": scheduledDate,
+			auto_retweet_enabled: false,
+			auto_plug_enabled: false,
+		}),
+	});
 
-	try {
-		const response = await fetch(`${TYPEFULLY_API_URL}/drafts/`, {
-			method: "POST",
-			headers: {
-				"X-API-KEY": `Bearer ${apiKey}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				content,
-				platform,
-				threadify,
-				"schedule-date": scheduledDate,
-				auto_retweet_enabled: false, // Optional: enable if needed
-				auto_plug_enabled: false, // Optional: enable if needed
-			}),
-		});
-
-		if (!response.ok) {
-			const errorText = await response.text();
-			throw new Error(
-				`Failed to create/schedule draft: ${response.status} ${response.statusText} - ${errorText}`,
-			);
-		}
-
-		const responseData = (await response.json()) as { id: string };
-		ctx.logger.info(
-			"Typefully draft created and scheduled with ID: %s",
-			responseData.id,
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(
+			`Failed to create/schedule draft: ${response.status} ${response.statusText} - ${errorText}`,
 		);
-		return responseData.id;
-	} catch (error) {
-		ctx.logger.error("Error creating/scheduling Typefully draft: %s", error);
-		throw error;
 	}
+
+	const responseData = (await response.json()) as { id: string };
+	ctx.logger.info("Typefully draft created with ID: %s", responseData.id);
+	return responseData.id;
 }

@@ -42,10 +42,13 @@ export default async function ResearcherAgent(
 	ctx: AgentContext,
 ) {
 	try {
-		ctx.logger.info("Content Marketing Researcher Agent started");
-
 		// Extract request data
 		const data = req.data.json as Record<string, unknown>;
+		ctx.logger.info(
+			"Researcher: Processing campaign %s on topic: %s",
+			data.campaignId,
+			data.topic,
+		);
 
 		// Validate required fields
 		if (!data.topic || !data.campaignId || !data.source) {
@@ -64,8 +67,22 @@ export default async function ResearcherAgent(
 			campaignId: data.campaignId as string,
 		};
 
+		// Validate campaign ID is not empty
+		if (
+			!request.campaignId ||
+			typeof request.campaignId !== "string" ||
+			request.campaignId.trim() === ""
+		) {
+			ctx.logger.error("Invalid campaign ID: %s", request.campaignId);
+			return resp.json({
+				error: "Invalid campaign ID",
+				status: "error",
+			});
+		}
+
 		// Get the campaign from KV store
 		const campaign = await getCampaign(ctx, request.campaignId);
+
 		if (!campaign) {
 			return resp.json({
 				error: `Campaign not found with ID: ${request.campaignId}`,
@@ -77,11 +94,7 @@ export default async function ResearcherAgent(
 		await updateCampaignStatus(ctx, campaign.id, "researching");
 
 		// Perform research
-		ctx.logger.info(
-			"Researching topic: %s from source: %s",
-			request.topic,
-			request.source,
-		);
+		ctx.logger.info("Researching from source: %s", request.source);
 
 		// Research from the provided source URL
 		const researchResults = await researchFromSource(
@@ -91,10 +104,28 @@ export default async function ResearcherAgent(
 			ctx,
 		);
 
-		// Update campaign with research results
-		campaign.research = researchResults;
-		campaign.updatedAt = new Date().toISOString();
-		await saveCampaign(ctx, campaign);
+		// Create a fresh campaign object with just the essential properties
+		const updatedCampaign: Campaign = {
+			id: campaign.id,
+			topic: campaign.topic,
+			description: campaign.description,
+			publishDate: campaign.publishDate,
+			status: campaign.status || "researching",
+			createdAt: campaign.createdAt,
+			updatedAt: new Date().toISOString(),
+			research: researchResults,
+		};
+
+		// Save the campaign with research results
+		const saveSuccess = await saveCampaign(ctx, updatedCampaign);
+
+		if (!saveSuccess) {
+			ctx.logger.error("Failed to save campaign with research results");
+			return resp.json({
+				error: "Failed to save campaign with research results",
+				status: "error",
+			});
+		}
 
 		// Hand off to the copywriter agent
 		const jsonResearch = {
@@ -107,15 +138,12 @@ export default async function ResearcherAgent(
 		};
 
 		const copywriterPayload = {
-			campaignId: campaign.id,
-			topic: campaign.topic,
+			campaignId: updatedCampaign.id,
+			topic: updatedCampaign.topic,
 			research: jsonResearch,
 		};
 
-		ctx.logger.info("Researcher Agent sending data to Copywriter Agent:", {
-			...copywriterPayload,
-		});
-
+		ctx.logger.info("Handing off to copywriter for campaign: %s", campaign.id);
 		return resp.handoff({ name: "copywriter" }, { data: copywriterPayload });
 	} catch (error: unknown) {
 		ctx.logger.error(
@@ -140,8 +168,6 @@ async function researchFromSource(
 	ctx: AgentContext,
 ): Promise<ResearchResults> {
 	try {
-		ctx.logger.info("Researching from source: %s", sourceUrl);
-
 		// Use Firecrawl to scrape the content
 		const content = await extractContentWithFirecrawl(sourceUrl, topic, ctx);
 
@@ -264,8 +290,6 @@ async function extractContentWithFirecrawl(
 	topic: string,
 	ctx: AgentContext,
 ): Promise<string> {
-	ctx.logger.info("Extracting content with Firecrawl: %s", url);
-
 	try {
 		const prompt = `
 You are an investigative content researcher tasked with extracting relevant content about "${topic}".
@@ -290,11 +314,7 @@ SOURCES: ${url}
 		});
 
 		if (!result.success) {
-			ctx.logger.error(
-				"Failed to extract content from %s: %s",
-				url,
-				result.error,
-			);
+			ctx.logger.error("Failed to extract content from %s", url);
 			throw new Error(`Firecrawl extraction failed: ${result.error}`);
 		}
 

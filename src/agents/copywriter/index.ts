@@ -46,7 +46,7 @@ type TwitterThreadsData = z.infer<typeof TwitterThreadSchema>;
 // Constants
 const DEFAULT_LINKEDIN_POSTS_COUNT = 3;
 const DEFAULT_TWITTER_THREADS_COUNT = 2;
-const DEFAULT_TWEETS_PER_THREAD = 5;
+const DEFAULT_TWEETS_PER_THREAD = 3;
 
 export default async function CopywriterAgent(
 	req: AgentRequest,
@@ -54,13 +54,13 @@ export default async function CopywriterAgent(
 	ctx: AgentContext,
 ) {
 	try {
-		ctx.logger.info("Content Marketing Copywriter Agent started");
-
 		// Extract request data
 		const data = req.data.json as Record<string, unknown>;
-		ctx.logger.info("Copywriter Agent received data:", {
-			...data,
-		});
+		ctx.logger.info(
+			"Copywriter: Processing campaign %s on topic: %s",
+			data.campaignId,
+			data.topic,
+		);
 
 		// Validate required fields
 		if (!data.campaignId) {
@@ -71,8 +71,21 @@ export default async function CopywriterAgent(
 			});
 		}
 
-		// Get the campaign from KV store
+		// Validate campaign ID
 		const campaignId = data.campaignId as string;
+		if (
+			!campaignId ||
+			typeof campaignId !== "string" ||
+			campaignId.trim() === ""
+		) {
+			ctx.logger.error("Invalid campaign ID: %s", campaignId);
+			return resp.json({
+				error: "Invalid campaign ID",
+				status: "error",
+			});
+		}
+
+		// Get the campaign from KV store
 		const campaign = await getCampaign(ctx, campaignId);
 
 		if (!campaign) {
@@ -119,8 +132,10 @@ export default async function CopywriterAgent(
 			};
 		}
 
+		// Generate content
+		ctx.logger.info("Generating content for campaign: %s", campaign.id);
+
 		// Generate LinkedIn posts
-		ctx.logger.info("Generating LinkedIn posts for campaign: %s", campaign.id);
 		const linkedInPosts = await generateLinkedInPosts(
 			research,
 			topic,
@@ -129,7 +144,6 @@ export default async function CopywriterAgent(
 		);
 
 		// Generate Twitter threads
-		ctx.logger.info("Generating Twitter threads for campaign: %s", campaign.id);
 		const twitterThreads = await generateTwitterThreads(
 			research,
 			topic,
@@ -144,21 +158,37 @@ export default async function CopywriterAgent(
 			twitterThreads,
 		};
 
-		// Update the campaign with the content
-		campaign.content = campaignContent;
-		campaign.updatedAt = new Date().toISOString();
-		await saveCampaign(ctx, campaign);
+		// Create a fresh campaign object with just the essential properties
+		const updatedCampaign: Campaign = {
+			id: campaign.id,
+			topic: campaign.topic,
+			description: campaign.description,
+			publishDate: campaign.publishDate,
+			status: campaign.status || "writing",
+			createdAt: campaign.createdAt,
+			updatedAt: new Date().toISOString(),
+			research: campaign.research,
+			content: campaignContent,
+		};
+
+		// Save the campaign with content
+		const saveSuccess = await saveCampaign(ctx, updatedCampaign);
+
+		if (!saveSuccess) {
+			ctx.logger.error("Failed to save campaign with generated content");
+			return resp.json({
+				error: "Failed to save campaign with generated content",
+				status: "error",
+			});
+		}
 
 		// Hand off to the scheduler agent
 		const schedulerPayload = {
-			campaignId: campaign.id,
-			publishDate: campaign.publishDate || null,
+			campaignId: updatedCampaign.id,
+			publishDate: updatedCampaign.publishDate || null,
 		};
-		ctx.logger.info("Copywriter Agent sending data to Scheduler Agent:", {
-			...schedulerPayload,
-		});
 
-		// Use the proper handoff method
+		ctx.logger.info("Handing off to scheduler for campaign: %s", campaign.id);
 		return resp.handoff({ name: "scheduler" }, { data: schedulerPayload });
 	} catch (error) {
 		ctx.logger.error("Error in Copywriter Agent: %s", error);
@@ -180,13 +210,14 @@ async function generateLinkedInPosts(
 	ctx: AgentContext,
 ): Promise<Post[]> {
 	try {
-		ctx.logger.info("Generating %d LinkedIn posts", count);
+		// Keeping only one log message for content generation tracking
+		ctx.logger.debug("Generating %d LinkedIn posts", count);
 
 		const result = await generateObject({
 			model: anthropic("claude-3-7-sonnet-20250219"),
 			schema: LinkedInPostSchema,
 			system:
-				"You are a professional LinkedIn content creator who specializes in creating engaging, high-quality posts that drive engagement and thought leadership.",
+				"You are a professional LinkedIn content creator who specializes in creating engaging, viral posts that drive engagement and shares.",
 			prompt: `
 			Create ${count} unique LinkedIn posts based on the following research about "${topic}":
 			
@@ -260,11 +291,8 @@ async function generateTwitterThreads(
 	ctx: AgentContext,
 ): Promise<Thread[]> {
 	try {
-		ctx.logger.info(
-			"Generating %d Twitter threads with %d tweets each",
-			threadCount,
-			tweetsPerThread,
-		);
+		// Keeping only one log message for content generation tracking
+		ctx.logger.debug("Generating %d Twitter threads", threadCount);
 
 		const result = await generateObject({
 			model: anthropic("claude-3-7-sonnet-20250219"),

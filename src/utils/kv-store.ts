@@ -19,9 +19,50 @@ export async function getCampaign(
 	id: string,
 ): Promise<Campaign | null> {
 	try {
+		if (!id || typeof id !== "string" || id.trim() === "") {
+			ctx.logger.error("Invalid campaign ID provided to getCampaign: %s", id);
+			return null;
+		}
+
+		// Using debug level for routine operations
+		ctx.logger.debug("Getting campaign with ID: %s", id);
 		const result = await ctx.kv.get(CAMPAIGNS_STORE, id);
-		if (!result) return null;
-		return result as unknown as Campaign;
+
+		if (!result) {
+			ctx.logger.warn("No campaign found with ID: %s", id);
+			return null;
+		}
+
+		// Access the campaign data from the correct path
+		const campaignData = result.data?.json as unknown;
+
+		if (!campaignData) {
+			ctx.logger.error("Retrieved data is null for ID: %s", id);
+			return null;
+		}
+
+		const campaign = campaignData as Campaign;
+
+		if (!campaign || typeof campaign !== "object") {
+			ctx.logger.error("Retrieved campaign is not an object for ID: %s", id);
+			return null;
+		}
+
+		// Ensure the campaign has the required properties
+		if (!campaign.id) {
+			ctx.logger.error("Retrieved campaign missing ID property for ID: %s", id);
+			// Try to recover by setting the ID
+			campaign.id = id;
+		}
+
+		if (!campaign.topic) {
+			ctx.logger.error(
+				"Retrieved campaign missing topic property for ID: %s",
+				id,
+			);
+		}
+
+		return campaign;
 	} catch (error) {
 		ctx.logger.error("Failed to get campaign %s: %s", id, error);
 		return null;
@@ -36,16 +77,58 @@ export async function saveCampaign(
 	campaign: Campaign,
 ): Promise<boolean> {
 	try {
-		// Convert campaign to JSON string then parse it to ensure it's a proper JSON object
-		const jsonData = JSON.parse(JSON.stringify(campaign)); // weird TS hack
-		await ctx.kv.set(CAMPAIGNS_STORE, campaign.id, jsonData);
+		// Validate the campaign ID
+		if (
+			!campaign ||
+			!campaign.id ||
+			typeof campaign.id !== "string" ||
+			campaign.id.trim() === ""
+		) {
+			ctx.logger.error(
+				"Invalid campaign ID provided for saving: %s",
+				campaign?.id,
+			);
+			return false;
+		}
+
+		// Debug-level log for routine operations
+		ctx.logger.debug("Saving campaign: %s", campaign.id);
+
+		// Create a sanitized version of the campaign
+		const sanitizedCampaign: Campaign = {
+			id: campaign.id,
+			topic: campaign.topic,
+			description: campaign.description,
+			publishDate: campaign.publishDate,
+			status: campaign.status,
+			createdAt: campaign.createdAt,
+			updatedAt: campaign.updatedAt,
+		};
+
+		// Add optional properties if they exist
+		if (campaign.research) {
+			sanitizedCampaign.research = campaign.research;
+		}
+
+		if (campaign.content) {
+			sanitizedCampaign.content = campaign.content;
+		}
+
+		if (campaign.schedulingInfo) {
+			sanitizedCampaign.schedulingInfo = campaign.schedulingInfo;
+		}
+		// Convert to a JSON object that can be safely stored
+		const jsonData = JSON.parse(JSON.stringify(sanitizedCampaign));
+
+		// Set the campaign in the KV store
+		await ctx.kv.set(CAMPAIGNS_STORE, sanitizedCampaign.id, jsonData);
 
 		// Update the campaign index to include this campaign ID
-		await updateCampaignIndex(ctx, campaign.id);
+		await updateCampaignIndex(ctx, sanitizedCampaign.id);
 
 		return true;
 	} catch (error) {
-		ctx.logger.error("Failed to save campaign %s: %s", campaign.id, error);
+		ctx.logger.error("Failed to save campaign %s: %s", campaign?.id, error);
 		return false;
 	}
 }
@@ -58,15 +141,31 @@ async function updateCampaignIndex(
 	campaignId: string,
 ): Promise<boolean> {
 	try {
+		// Validate campaign ID
+		if (
+			!campaignId ||
+			typeof campaignId !== "string" ||
+			campaignId.trim() === ""
+		) {
+			ctx.logger.error("Invalid campaign ID for indexing: %s", campaignId);
+			return false;
+		}
+
 		// Get the current index
 		const result = await ctx.kv.get(CAMPAIGNS_INDEX_STORE, CAMPAIGNS_INDEX_KEY);
 		let campaignIds: string[] = [];
 
 		// If we have an existing index, use it
-		if (result && typeof result === "object" && "campaignIds" in result) {
-			const typedResult = result as { campaignIds: unknown };
-			if (Array.isArray(typedResult.campaignIds)) {
-				campaignIds = typedResult.campaignIds;
+		if (result?.data?.json) {
+			const indexDataRaw = result.data.json as unknown;
+			const indexData = indexDataRaw as CampaignIndex;
+
+			if (indexData?.campaignIds && Array.isArray(indexData.campaignIds)) {
+				// Filter out any null or invalid IDs
+				campaignIds = indexData.campaignIds.filter(
+					(id: string): id is string =>
+						typeof id === "string" && id.trim() !== "",
+				);
 			}
 		}
 
@@ -95,20 +194,24 @@ export async function listCampaigns(ctx: AgentContext): Promise<Campaign[]> {
 		const result = await ctx.kv.get(CAMPAIGNS_INDEX_STORE, CAMPAIGNS_INDEX_KEY);
 
 		// If there's no index or the index is invalid, return an empty array
-		if (!result || typeof result !== "object" || !("campaignIds" in result)) {
+		if (!result?.data?.json) {
 			return [];
 		}
 
 		// Extract campaign IDs
-		const typedResult = result as { campaignIds: unknown };
+		const indexData = result.data.json as unknown as CampaignIndex;
 		if (
-			!Array.isArray(typedResult.campaignIds) ||
-			typedResult.campaignIds.length === 0
+			!indexData?.campaignIds ||
+			!Array.isArray(indexData.campaignIds) ||
+			indexData.campaignIds.length === 0
 		) {
 			return [];
 		}
 
-		const campaignIds = typedResult.campaignIds as string[];
+		// Filter out any null or invalid IDs
+		const campaignIds = indexData.campaignIds.filter(
+			(id): id is string => typeof id === "string" && id.trim() !== "",
+		);
 
 		// Fetch all campaigns by ID in parallel
 		const campaignPromises = campaignIds.map((id) => getCampaign(ctx, id));
@@ -132,9 +235,27 @@ export async function findCampaignsByTopic(
 	topic: string,
 ): Promise<Campaign[]> {
 	try {
-		const allCampaigns = await listCampaigns(ctx);
-		const searchTerm = topic.toLowerCase();
+		// Validate the topic
+		if (!topic || topic.trim() === "") {
+			ctx.logger.warn("Empty topic provided to findCampaignsByTopic");
+			return [];
+		}
 
+		const allCampaigns = await listCampaigns(ctx);
+		const searchTerm = topic.toLowerCase().trim();
+
+		// Improve matching by removing common words and performing exact matching first
+		// First check for exact matches (normalized)
+		const exactMatches = allCampaigns.filter(
+			(campaign) => campaign.topic.toLowerCase().trim() === searchTerm,
+		);
+
+		// If we have exact matches, return those
+		if (exactMatches.length > 0) {
+			return exactMatches;
+		}
+
+		// Otherwise, look for partial matches
 		return allCampaigns.filter((campaign) =>
 			campaign.topic.toLowerCase().includes(searchTerm),
 		);
@@ -153,9 +274,18 @@ export async function createCampaign(
 	description?: string,
 	publishDate?: string,
 ): Promise<Campaign> {
+	// Validate topic
+	if (!topic || topic.trim() === "") {
+		ctx.logger.error("Invalid topic provided for campaign creation");
+		throw new Error("Invalid topic provided for campaign creation");
+	}
+
+	const campaignId = `campaign-${Date.now()}`;
 	const now = new Date().toISOString();
+
+	// Create the campaign object
 	const campaign: Campaign = {
-		id: `campaign-${Date.now()}`,
+		id: campaignId,
 		topic,
 		description,
 		publishDate,
@@ -164,7 +294,17 @@ export async function createCampaign(
 		updatedAt: now,
 	};
 
-	await saveCampaign(ctx, campaign);
+	// Log the campaign creation
+	ctx.logger.info("Creating campaign: %s for topic: %s", campaignId, topic);
+
+	// Save the campaign to KV store
+	const saveResult = await saveCampaign(ctx, campaign);
+
+	if (!saveResult) {
+		ctx.logger.error("Failed to save new campaign: %s", campaignId);
+		throw new Error(`Failed to save campaign: ${campaignId}`);
+	}
+
 	return campaign;
 }
 
@@ -185,6 +325,7 @@ export async function updateCampaignStatus(
 	campaign.status = status;
 	campaign.updatedAt = new Date().toISOString();
 
+	ctx.logger.debug("Updating campaign status: %s → %s", campaignId, status);
 	await saveCampaign(ctx, campaign);
 	return campaign;
 }

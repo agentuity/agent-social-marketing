@@ -30,7 +30,9 @@
     "@ai-sdk/openai": "^1.2.3",
     "@mendable/firecrawl-js": "^1.19.1",
     "ai": "^4.1.58",
+    "date-fns": "^4.1.0",
     "firecrawl": "^1.19.1",
+    "parse-human-relative-time": "^3.0.2",
     "zod": "^3.24.2"
   },
   "module": "index.ts"

@@ -28,8 +28,6 @@ export default async function ManagerAgent(
 	ctx: AgentContext,
 ) {
 	try {
-		ctx.logger.info("Content Marketing Manager Agent received request");
-
 		// Extract request data
 		let dataJson: Record<string, unknown> = {};
 		let dataText = "";
@@ -40,15 +38,19 @@ export default async function ManagerAgent(
 			dataText = req.data.text; // Request can come in freeform text
 		}
 
-		const topic = (dataJson?.topic as string) || dataText;
+		const rawTopic = (dataJson?.topic as string) || dataText;
 
 		// Check if we have a topic
-		if (!topic) {
+		if (!rawTopic || rawTopic.trim() === "") {
 			return resp.json({
 				error: "Missing a topic",
 				status: "error",
 			});
 		}
+
+		// Clean and normalize the topic
+		const topic = rawTopic.trim();
+		ctx.logger.info("Manager: Processing request for topic: %s", topic);
 
 		const data = {
 			topic,
@@ -67,13 +69,14 @@ export default async function ManagerAgent(
 
 		// Now we have structured data
 		const request: ManagerRequest = {
-			topic: data.topic as string,
-			description: data.description as string | undefined,
-			publishDate: data.publishDate as string | undefined,
-			domain: data.domain as string | undefined,
+			topic: data.topic,
+			description: data.description,
+			publishDate: data.publishDate,
+			domain: data.domain,
 		};
 
-		// Check if this is for an existing campaign by searching for similar topics
+		// Check for existing campaigns with similar topics
+		ctx.logger.debug("Checking for existing campaigns: %s", request.topic);
 		const existingCampaigns = await findCampaignsByTopic(ctx, request.topic);
 
 		if (existingCampaigns.length > 0) {
@@ -84,7 +87,7 @@ export default async function ManagerAgent(
 				request.topic,
 			);
 
-			// Convert campaigns to plain objects for JSON serialization (TS doesn't like it otherwise)
+			// Convert campaigns to plain objects for JSON serialization
 			const serializedCampaigns = existingCampaigns.map((campaign) => {
 				return {
 					id: campaign.id,
@@ -104,38 +107,57 @@ export default async function ManagerAgent(
 		}
 
 		// This is a new campaign, let's create it
-		const campaign = await createCampaign(
-			ctx,
-			request.topic,
-			request.description,
-			request.publishDate,
-		);
-
-		ctx.logger.info("Created new campaign with ID: %s", campaign.id);
-
-		// Prepare the payload for handoff
-		const payload = {
-			topic: campaign.topic,
-			description: campaign.description || null,
-			campaignId: campaign.id,
-			publishDate: campaign.publishDate || null,
-			source: data.domain || request.domain || null,
-		};
-		ctx.logger.info("Payload", {
-			...payload,
-		});
-
-		// If there's no source/domain, skip researcher and go directly to copywriter
-		if (!payload.source) {
-			ctx.logger.info(
-				"No source domain provided, skipping research phase and handing off directly to copywriter",
+		try {
+			const campaign = await createCampaign(
+				ctx,
+				request.topic,
+				request.description,
+				request.publishDate,
 			);
-			return resp.handoff({ name: "copywriter" }, { data: payload });
-		}
 
-		// If we have a source/domain, hand off to the researcher agent
-		ctx.logger.info("Source domain provided, handing off to researcher agent");
-		return resp.handoff({ name: "researcher" }, { data: payload });
+			// Double check that campaign was created successfully
+			if (!campaign || !campaign.id) {
+				ctx.logger.error(
+					"Failed to create campaign for topic: %s",
+					request.topic,
+				);
+				return resp.json({
+					error: "Failed to create campaign",
+					status: "error",
+				});
+			}
+
+			// Prepare the payload for handoff
+			const payload = {
+				topic: campaign.topic,
+				description: campaign.description || null,
+				campaignId: campaign.id,
+				publishDate: campaign.publishDate || null,
+				source: data.domain || request.domain || null,
+			};
+
+			// If there's no source/domain, skip researcher and go directly to copywriter
+			if (!payload.source) {
+				ctx.logger.info(
+					"Skipping research phase for campaign: %s",
+					campaign.id,
+				);
+				return resp.handoff({ name: "copywriter" }, { data: payload });
+			}
+
+			// If we have a source/domain, hand off to the researcher agent
+			ctx.logger.info(
+				"Handing off to researcher for campaign: %s",
+				campaign.id,
+			);
+			return resp.handoff({ name: "researcher" }, { data: payload });
+		} catch (error) {
+			ctx.logger.error("Error creating campaign: %s", error);
+			return resp.json({
+				error: `Failed to create campaign: ${error instanceof Error ? error.message : String(error)}`,
+				status: "error",
+			});
+		}
 	} catch (error) {
 		ctx.logger.error("Error in Manager Agent: %s", error);
 		return resp.json({
@@ -151,7 +173,7 @@ export default async function ManagerAgent(
  */
 async function extractStructuredData(text: string, ctx: AgentContext) {
 	try {
-		ctx.logger.info("Extracting structured data from: %s", text);
+		ctx.logger.debug("Extracting structured data from request");
 
 		const result = await generateObject({
 			model: groq("llama3-70b-8192"),
@@ -165,7 +187,7 @@ async function extractStructuredData(text: string, ctx: AgentContext) {
 			Extract the following information:
 			- Main topic (required)
 			- Description of the campaign (optional)
-			- Publish date for the campaign (optional, in YYYY-MM-DD format)
+			- Publish date for the campaign (optional)
 			- Source url (optional) Please keep the entire URL intact, not just the TLD
 
 			Only include fields that can be confidently extracted from the text.
@@ -174,6 +196,11 @@ async function extractStructuredData(text: string, ctx: AgentContext) {
 
 		// Extract the data from the result
 		const extractedData: ExtractedData = result.object;
+
+		// Ensure the topic is not null or empty
+		if (!extractedData.topic || extractedData.topic.trim() === "") {
+			extractedData.topic = text.trim();
+		}
 
 		return {
 			topic: extractedData.topic || text,
