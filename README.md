@@ -1,4 +1,18 @@
+<div align="center">
+    <img src=".github/Agentuity.png" alt="Agentuity" width="100"/> <br/>
+    <strong>Content Marketing Agent System</strong> <br/>
+    <strong>Build Agents, Not Infrastructure</strong> <br/>
+<br />
+<a href="https://github.com/agentuity/agent-social-marketing"><img alt="GitHub Repo" src="https://img.shields.io/badge/GitHub-Marketing-blue"></a>
+<a href="https://github.com/agentuity/agent-social-marketing/blob/main/LICENSE.md"><img alt="License" src="https://badgen.now.sh/badge/license/Apache-2.0"></a>
+<a href="https://discord.gg/vtn3hgUfuc"><img alt="Join the community on Discord" src="https://img.shields.io/discord/1332974865371758646.svg?style=flat"></a>
+</div>
+</div>
+
 # Content Marketing Agent System
+
+> [!WARNING]  
+> This repository is under heavy development and it is not yet stable or ready for use.
 
 The Content Marketing Agent System is an AI-powered automation platform for creating, managing, and scheduling social media content. Built with Agentuity and TypeScript, this system automates the entire content marketing workflow from topic ideation to post scheduling.
 
@@ -79,6 +93,10 @@ The system uses the following key data structures:
 
 This project was built using Agentuity, an AI agent development platform. The project structure follows Agentuity's conventions with agents located in `src/agents/`.
 
+## Documentation
+
+For comprehensive documentation on Agentuity, visit our documentation site at [agentuity.dev](https://agentuity.dev).
+
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the Apache License, Version 2.0 - see the [LICENSE](LICENSE.md) file for details.
