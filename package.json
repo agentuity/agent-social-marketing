@@ -1,39 +1,33 @@
 {
-  "name": "content-marketing",
-  "description": "Example content marketing",
-  "version": "0.0.1",
-  "main": "index.js",
-  "type": "module",
-  "scripts": {
-    "build": "agentuity build",
-    "prestart": "agentuity bundle",
-    "start": "bun run .agentuity/index.js"
-  },
-  "keywords": [
-    "agentuity",
-    "agent",
-    "ai",
-    "ai agent",
-    "bun"
-  ],
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
-  "dependencies": {
-    "@agentuity/sdk": "^0.0.82",
-    "@ai-sdk/anthropic": "^1.1.16",
-    "@ai-sdk/groq": "^1.1.13",
-    "@ai-sdk/openai": "^1.2.3",
-    "@mendable/firecrawl-js": "^1.19.1",
-    "ai": "^4.1.58",
-    "date-fns": "^4.1.0",
-    "firecrawl": "^1.19.1",
-    "parse-human-relative-time": "^3.0.2",
-    "zod": "^3.24.2"
-  },
-  "module": "index.ts"
+	"name": "content-marketing",
+	"description": "Example content marketing",
+	"version": "0.0.1",
+	"main": "index.js",
+	"type": "module",
+	"scripts": {
+		"build": "agentuity build",
+		"prestart": "agentuity bundle",
+		"start": "bun run .agentuity/index.js"
+	},
+	"keywords": ["agentuity", "agent", "ai", "ai agent", "bun"],
+	"private": true,
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"@agentuity/sdk": "^0.0.88",
+		"@ai-sdk/anthropic": "^1.1.16",
+		"@ai-sdk/groq": "^1.1.13",
+		"@ai-sdk/openai": "^1.2.3",
+		"@mendable/firecrawl-js": "^1.19.1",
+		"ai": "^4.1.58",
+		"date-fns": "^4.1.0",
+		"firecrawl": "^1.19.1",
+		"parse-human-relative-time": "^3.0.2",
+		"zod": "^3.24.2"
+	},
+	"module": "index.ts"
 }
