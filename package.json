@@ -18,7 +18,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@agentuity/sdk": "^0.0.88",
+		"@agentuity/sdk": "^0.0.89",
 		"@ai-sdk/anthropic": "^1.1.16",
 		"@ai-sdk/groq": "^1.1.13",
 		"@ai-sdk/openai": "^1.2.3",
