@@ -1,5 +1,5 @@
 <div align="center">
-    <img src=".github/Agentuity.png" alt="Agentuity" width="100"/> <br/>
+    <img src="https://raw.githubusercontent.com/agentuity/agent-social-marketing/main/.github/Agentuity.png" alt="Agentuity" width="100"/> <br/>
     <strong>Content Marketing Agent System</strong> <br/>
     <strong>Build Agents, Not Infrastructure</strong> <br/>
 <br />
