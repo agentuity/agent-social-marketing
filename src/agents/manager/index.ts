@@ -3,13 +3,11 @@ import { generateObject } from "ai";
 import { groq } from "@ai-sdk/groq";
 import { z } from "zod";
 import {
-	getCampaign,
 	createCampaign,
 	findCampaignsByTopic,
-	updateCampaignStatus,
 } from "../../utils/kv-store";
-import { errorResponse, successResponse } from "../../utils/response-utils";
-import type { Campaign, ManagerRequest } from "../../types";
+import { errorResponse } from "../../utils/response-utils";
+import type { Campaign } from "../../types";
 
 // Define the schema for structured data extraction
 const RequestSchema = z.object({
@@ -162,7 +160,7 @@ async function enrichRequestData(
 			ctx.logger.info("Extracting structured data from freeform text input");
 
 			const result = await generateObject({
-				model: groq("llama3-70b-8192"),
+				model: groq("meta-llama/llama-4-scout-17b-16e-instruct"),
 				schema: RequestSchema,
 				system:
 					"You are a helpful assistant that extracts structured information from natural language content marketing requests",
