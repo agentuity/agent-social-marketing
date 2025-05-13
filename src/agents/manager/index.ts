@@ -28,7 +28,7 @@ export default async function ManagerAgent(
 	ctx: AgentContext,
 ) {
 	// Extract and normalize request data
-	const requestData = normalizeRequestData(req);
+	const requestData = await normalizeRequestData(req);
 
 	// Validate request has a topic
 	if (!requestData.topic) {
@@ -108,22 +108,23 @@ export default async function ManagerAgent(
 /**
  * Normalize input data from various request formats
  */
-function normalizeRequestData(req: AgentRequest): Partial<ExtractedData> {
+async function normalizeRequestData(req: AgentRequest): Promise<Partial<ExtractedData>> {
 	// Initialize variables
 	let jsonData: Record<string, unknown> = {};
 	let textData = "";
 
 	// Safely parse JSON data from request
 	try {
-		jsonData = (req.data.json as Record<string, unknown>) || {};
+		const result = await req.data.json();
+		jsonData = (typeof result === 'object' && result !== null) ? result as Record<string, unknown> : {};
 	} catch (jsonError) {
 		// If JSON parsing fails, fall back to text
-		textData = req.data.text || "";
+		textData = await req.data.text() || "";
 	}
 
 	// If no text was set from the error handler, get it from req.data.text
 	if (!textData) {
-		textData = req.data.text || "";
+		textData = await req.data.text() || "";
 	}
 
 	// Get the topic from either JSON or text

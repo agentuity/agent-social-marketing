@@ -24,8 +24,8 @@ export default async function SchedulerAgent(
 ) {
 	try {
 		// Extract and validate request data
-		const { campaignId, publishDate } = req.data
-			.json as Partial<SchedulerRequest>;
+		const { campaignId, publishDate } = await req.data.json() as Partial<SchedulerRequest>;
+
 
 		ctx.logger.info("Scheduler: Processing campaign %s", campaignId);
 
@@ -36,6 +36,9 @@ export default async function SchedulerAgent(
 
 		// Get the campaign from KV store
 		const campaign = await getCampaign(ctx, campaignId);
+		
+		ctx.logger.debug("Scheduler: Got Campaign: %j", campaign);
+
 		if (!campaign) {
 			return resp.json(
 				errorResponse(`Campaign not found with ID: ${campaignId}`),
@@ -49,6 +52,9 @@ export default async function SchedulerAgent(
 
 		// Verify API key is available
 		const apiKey = process.env.TYPEFULLY_API_KEY;
+
+		ctx.logger.debug("Scheduler: API Key: %s", apiKey);
+
 		if (!apiKey) {
 			return resp.json(
 				errorResponse("Missing TYPEFULLY_API_KEY in environment variables"),
