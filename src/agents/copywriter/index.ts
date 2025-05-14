@@ -55,7 +55,7 @@ export default async function CopywriterAgent(
 ) {
 	try {
 		// Extract request data
-		const data = req.data.json as Record<string, unknown>;
+		const data = await req.data.json() as Record<string, unknown>;
 		ctx.logger.info(
 			"Copywriter: Processing campaign %s on topic: %s",
 			data.campaignId,
@@ -99,7 +99,7 @@ export default async function CopywriterAgent(
 		await updateCampaignStatus(ctx, campaign.id, "writing");
 
 		let research: ResearchResults;
-		const topic = campaign.topic;
+		const topic = campaign.topic || data.topic as string || "No topic provided";
 
 		// Determine if we have research data or simple topic/description
 		if (data.research) {

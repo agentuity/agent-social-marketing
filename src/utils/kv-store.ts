@@ -71,7 +71,7 @@ export async function getCampaign(
 		const result = await ctx.kv.get(CAMPAIGNS_STORE, id);
 
 		// Handle type conversion properly
-		const campaignData = result?.data?.json as unknown;
+		const campaignData = result?.data?.json() as unknown;
 		const campaign = campaignData as Campaign | undefined;
 
 		if (!campaign) {
@@ -79,10 +79,6 @@ export async function getCampaign(
 			return null;
 		}
 
-		// Ensure ID consistency
-		if (!campaign.id) {
-			campaign.id = id;
-		}
 
 		return campaign;
 	} catch (error) {
