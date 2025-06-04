@@ -6,6 +6,8 @@
 <a href="https://github.com/agentuity/agent-social-marketing"><img alt="GitHub Repo" src="https://img.shields.io/badge/GitHub-Marketing-blue"></a>
 <a href="https://github.com/agentuity/agent-social-marketing/blob/main/LICENSE.md"><img alt="License" src="https://badgen.now.sh/badge/license/Apache-2.0"></a>
 <a href="https://discord.gg/vtn3hgUfuc"><img alt="Join the community on Discord" src="https://img.shields.io/discord/1332974865371758646.svg?style=flat"></a>
+
+[![Deploy with Agentuity](https://app.agentuity.com/img/deploy.svg)](https://app.agentuity.com/deploy)
 </div>
 </div>
 
